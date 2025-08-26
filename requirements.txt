@@ -1,0 +1,6 @@
+torch
+transformers
+diffusers
+Pillow
+bitsandbytes
+safetensors
