@@ -1,11 +1,14 @@
+import itertools
+import json
+import os
 import torch
 from transformers import BitsAndBytesConfig as TransformersBitsAndBytesConfig
 from transformers import Qwen2_5_VLForConditionalGeneration
+from PIL import Image
 
 from diffusers import BitsAndBytesConfig as DiffusersBitsAndBytesConfig
 from diffusers import QwenImageEditPipeline, QwenImageTransformer2DModel
 from diffusers.utils import load_image
-
 
 model_id = "Qwen/Qwen-Image-Edit"
 torch_dtype = torch.bfloat16
@@ -30,7 +33,6 @@ quantization_config = TransformersBitsAndBytesConfig(
     bnb_4bit_quant_type="nf4",
     bnb_4bit_compute_dtype=torch.bfloat16,
 )
-
 text_encoder = Qwen2_5_VLForConditionalGeneration.from_pretrained(
     model_id,
     subfolder="text_encoder",
@@ -43,21 +45,27 @@ pipe = QwenImageEditPipeline.from_pretrained(
     model_id, transformer=transformer, text_encoder=text_encoder, torch_dtype=torch_dtype
 )
 
-# optionally load LoRA weights to speed up inference
 pipe.load_lora_weights("lightx2v/Qwen-Image-Lightning", weight_name="Qwen-Image-Lightning-8steps-V1.1.safetensors")
-# pipe.load_lora_weights(
-#     "lightx2v/Qwen-Image-Lightning", weight_name="Qwen-Image-Lightning-4steps-V1.0-bf16.safetensors"
-# )
 pipe.enable_model_cpu_offload()
 
 generator = torch.Generator(device="cuda").manual_seed(42)
-image = load_image(
-    "https://huggingface.co/datasets/OzzyGT/testing-resources/resolve/main/resources/dog_plushie.png"
-).convert("RGB")
 
-prompt = "change the dog plushie for a cat preserving the background, the lighting, colors, shadows, also the cat plushie should have the same style of the dog plushie with the same eyes and lines."
+with open("comments.json", "r", encoding="utf-8") as f:
+    comments_data = json.load(f)
 
-# change steps to 8 or 4 if you used the lighting loras
-image = pipe(image, prompt, num_inference_steps=8).images[0]
+output_folder = "Output"
+os.makedirs(output_folder, exist_ok=True)
 
-image.save("qwenimageedit.png")
+for key, data in comments_data.items():
+    prompt = data["comment"]
+    image_url = data["image_url"]
+    comment_id = data["id"]
+
+    image = load_image(image_url).convert("RGB")
+    image = image.resize((512, 512), resample=Image.LANCZOS)
+
+    edited_image = pipe(image, prompt, num_inference_steps=32).images[0]
+
+    output_filename = os.path.join(output_folder, f"{comment_id}_output_qwen_01.png")
+    edited_image.save(output_filename)
+    print(f"Saved edited image for {comment_id} -> {output_filename}")
